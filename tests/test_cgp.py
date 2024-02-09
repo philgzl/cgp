@@ -19,6 +19,13 @@ def test_silence(n, fs):
 @pytest.mark.parametrize('n', [10000, 16384])
 @pytest.mark.parametrize('fs', [10000, 16000])
 @pytest.mark.parametrize('silence_idx', [
+    [(0, 2000)],
+    [(0, 2048)],
+    [(2000, 4000)],
+    [(2000, 4096)],
+    [(2048, 4096)],
+    [(4000, -1)],
+    [(4096, -1)],
     [(0, 2000), (4000, -1)],
     [(0, 2048), (4096, -1)],
     [(2000, 3000), (7000, 8000)],
@@ -30,7 +37,7 @@ def test_cgp(eng, n, fs, silence_idx):
     y = rng.standard_normal(n)
     for start, end in silence_idx:
         x[start:end] = 0
-    cgp_python = cgp(x, y, fs)
+    cgp_python = cgp(x, y, fs, _discard_last_frame=True)
     cgp_matlab = eng.cgp(
         matlab.double(x.tolist()),
         matlab.double(y.tolist()),

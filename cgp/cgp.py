@@ -4,7 +4,7 @@ from . import config as cfg
 from . import utils
 
 
-def cgp(x, y, fs):
+def cgp(x, y, fs, _discard_last_frame=False):
     if x.ndim != 1 or y.ndim != 1:
         raise ValueError('x and y must be 1D arrays.')
     if x.shape != y.shape:
@@ -15,7 +15,8 @@ def cgp(x, y, fs):
         y = utils.resample(y, fs, cfg.fs)
 
     x, y = utils.remove_silent_frames(x, y, cfg.vad_win_len, cfg.vad_hop_len,
-                                      cfg.vad_dyn_range)
+                                      cfg.vad_dyn_range,
+                                      _discard_last_frame=_discard_last_frame)
 
     x_stft = utils.stft(x, cfg.stft_win_len, cfg.stft_hop_len, cfg.stft_n_fft)
     y_stft = utils.stft(y, cfg.stft_win_len, cfg.stft_hop_len, cfg.stft_n_fft)
