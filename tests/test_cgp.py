@@ -1,6 +1,7 @@
 import matlab.engine
 import numpy as np
 import pytest
+import soundfile as sf
 
 from cgp import cgp
 
@@ -31,12 +32,24 @@ def test_silence(n, fs):
     [(2000, 3000), (7000, 8000)],
     [(2048, 3072), (8192, 9216)]
 ])
-def test_cgp(eng, n, fs, silence_idx):
-    rng = np.random.default_rng(seed=0)
+def test_fake_signal(eng, rng, n, fs, silence_idx):
     x = rng.standard_normal(n)
     y = rng.standard_normal(n)
     for start, end in silence_idx:
         x[start:end] = 0
+    cgp_python = cgp(x, y, fs, _discard_last_frame=True)
+    cgp_matlab = eng.cgp(
+        matlab.double(x.tolist()),
+        matlab.double(y.tolist()),
+        float(fs)
+    )
+    assert np.allclose(cgp_python, cgp_matlab)
+
+
+@pytest.mark.parametrize('file_idx', list(range(3)))
+def test_real_signal(eng, file_idx):
+    x, fs = sf.read(f'tests/audio/{file_idx:05d}_mixture.flac')
+    y, fs = sf.read(f'tests/audio/{file_idx:05d}_foreground.flac')
     cgp_python = cgp(x, y, fs, _discard_last_frame=True)
     cgp_matlab = eng.cgp(
         matlab.double(x.tolist()),

@@ -18,8 +18,7 @@ def test_hanning(eng, n):
 @pytest.mark.parametrize('n_fft', [512, 2048])
 @pytest.mark.parametrize('hop_len', [128, 256])
 @pytest.mark.parametrize('win_len', [256, 512])
-def test_stft(eng, n, n_fft, hop_len, win_len):
-    rng = np.random.default_rng(seed=0)
+def test_stft(eng, rng, n, n_fft, hop_len, win_len):
     x = rng.standard_normal(n)
     stft_python = cgp.utils.stft(
         x,
@@ -40,8 +39,7 @@ def test_stft(eng, n, n_fft, hop_len, win_len):
 @pytest.mark.parametrize('n', [10000, 16384])
 @pytest.mark.parametrize('fs_in', [10000])
 @pytest.mark.parametrize('fs_out', [16000])
-def test_resample(eng, n, fs_in, fs_out):
-    rng = np.random.default_rng(seed=0)
+def test_resample(eng, rng, n, fs_in, fs_out):
     x = rng.standard_normal((n, 1))
     resampled_python = cgp.utils.resample(x, fs_in, fs_out)
     resampled_matlab = eng.resample(
@@ -67,8 +65,7 @@ def test_resample(eng, n, fs_in, fs_out):
     [(2000, 3000), (7000, 8000)],
     [(2048, 3072), (8192, 9216)]
 ])
-def test_remove_silent_frames(eng, n, silence_idx):
-    rng = np.random.default_rng(seed=0)
+def test_remove_silent_frames(eng, rng, n, silence_idx):
     x = rng.standard_normal(n)
     y = rng.standard_normal(n)
     for start, end in silence_idx:
