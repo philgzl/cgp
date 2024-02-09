@@ -22,8 +22,7 @@ def resample(x, fs_in, fs_out):
     return scipy.signal.resample_poly(x, fs_out, fs_in)
 
 
-def remove_silent_frames(x, y, win_len, hop_len, dyn_range,
-                         _discard_last_frame=False):
+def remove_silent_frames(x, y, win_len, hop_len, dyn_range, _discard_last_frame=False):
     # Inspired from https://github.com/mpariente/pystoi
     # Copyright (c) 2018 Pariente Manuel
     # MIT License
@@ -36,12 +35,12 @@ def remove_silent_frames(x, y, win_len, hop_len, dyn_range,
         x_frames = x_frames[..., :-1]
         y_frames = y_frames[..., :-1]
 
-    with np.errstate(divide='ignore', invalid='ignore'):
+    with np.errstate(divide="ignore", invalid="ignore"):
         x_dB = 20 * np.log10(np.linalg.norm(x_frames, axis=0))
         mask = (np.max(x_dB) - dyn_range - x_dB) < 0
 
     if not any(mask):
-        raise RuntimeError('No speech frames detected')
+        raise RuntimeError("No speech frames detected")
 
     x = overlap_and_add(x_frames[:, mask], hop_len)
     y = overlap_and_add(y_frames[:, mask], hop_len)
@@ -100,13 +99,13 @@ def gen_tmp_mod_lpf(fc, fs, n_fft):
     mask = np.abs(f) <= fc
     H = mask.astype(float)
     f_over_fc = f[~mask] / fc
-    H[~mask] = f_over_fc ** 2 * np.exp(1 - f_over_fc ** 2)
+    H[~mask] = f_over_fc**2 * np.exp(1 - f_over_fc**2)
     return H / np.max(H)
 
 
 def apply_lpf(x, lpf):
     x_fft = np.fft.fft(x, len(lpf), axis=-1)
-    return np.fft.ifft(lpf * x_fft, axis=-1).real[:, :x.shape[-1]]
+    return np.fft.ifft(lpf * x_fft, axis=-1).real[:, : x.shape[-1]]
 
 
 def n_spec_seg(n_channels, spec_seg_len, spec_seg_hop):
@@ -134,7 +133,7 @@ def gauss_kernel(n_channels, spec_seg_len, spec_seg_hop, width):
 
 def normalize(x, axis):
     x = x - np.mean(x, axis=axis, keepdims=True)
-    x = x / np.mean(x ** 2, axis=axis, keepdims=True) ** 0.5
+    x = x / np.mean(x**2, axis=axis, keepdims=True) ** 0.5
     return x
 
 
@@ -152,8 +151,8 @@ def calc_tf_scores(x, y, spec_seg, spec_inc, gauss_kernel):
     # handle last segment
     n_last = spec_seg - spec_inc
     if n_last:
-        x_seg = normalize(x[x.shape[0] - n_last:, None, :], axis=0)
-        y_seg = normalize(y[y.shape[0] - n_last:, None, :], axis=0)
+        x_seg = normalize(x[x.shape[0] - n_last :, None, :], axis=0)
+        y_seg = normalize(y[y.shape[0] - n_last :, None, :], axis=0)
         U = np.concatenate([U, np.mean(x_seg * y_seg, axis=0)], axis=0)
 
     U = np.maximum(U, 0)

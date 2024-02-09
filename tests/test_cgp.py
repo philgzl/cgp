@@ -6,8 +6,8 @@ import soundfile as sf
 from cgp import cgp
 
 
-@pytest.mark.parametrize('n', [10000])
-@pytest.mark.parametrize('fs', [10000])
+@pytest.mark.parametrize("n", [10000])
+@pytest.mark.parametrize("fs", [10000])
 def test_silence(n, fs):
     # The MATLAB implementation raises an error for all-zero inputs.
     # Maybe this behavior should be changed in the future.
@@ -17,21 +17,24 @@ def test_silence(n, fs):
         cgp(x, y, fs)
 
 
-@pytest.mark.parametrize('n', [10000, 16384])
-@pytest.mark.parametrize('fs', [10000, 16000])
-@pytest.mark.parametrize('silence_idx', [
-    [(0, 2000)],
-    [(0, 2048)],
-    [(2000, 4000)],
-    [(2000, 4096)],
-    [(2048, 4096)],
-    [(4000, -1)],
-    [(4096, -1)],
-    [(0, 2000), (4000, -1)],
-    [(0, 2048), (4096, -1)],
-    [(2000, 3000), (7000, 8000)],
-    [(2048, 3072), (8192, 9216)]
-])
+@pytest.mark.parametrize("n", [10000, 16384])
+@pytest.mark.parametrize("fs", [10000, 16000])
+@pytest.mark.parametrize(
+    "silence_idx",
+    [
+        [(0, 2000)],
+        [(0, 2048)],
+        [(2000, 4000)],
+        [(2000, 4096)],
+        [(2048, 4096)],
+        [(4000, -1)],
+        [(4096, -1)],
+        [(0, 2000), (4000, -1)],
+        [(0, 2048), (4096, -1)],
+        [(2000, 3000), (7000, 8000)],
+        [(2048, 3072), (8192, 9216)],
+    ],
+)
 def test_fake_signal(eng, rng, n, fs, silence_idx):
     x = rng.standard_normal(n)
     y = rng.standard_normal(n)
@@ -39,21 +42,17 @@ def test_fake_signal(eng, rng, n, fs, silence_idx):
         x[start:end] = 0
     cgp_python = cgp(x, y, fs, _discard_last_frame=True)
     cgp_matlab = eng.cgp(
-        matlab.double(x.tolist()),
-        matlab.double(y.tolist()),
-        float(fs)
+        matlab.double(x.tolist()), matlab.double(y.tolist()), float(fs)
     )
     assert np.allclose(cgp_python, cgp_matlab)
 
 
-@pytest.mark.parametrize('file_idx', list(range(3)))
+@pytest.mark.parametrize("file_idx", list(range(3)))
 def test_real_signal(eng, file_idx):
-    x, fs = sf.read(f'tests/audio/{file_idx:05d}_mixture.flac')
-    y, fs = sf.read(f'tests/audio/{file_idx:05d}_foreground.flac')
+    x, fs = sf.read(f"tests/audio/{file_idx:05d}_mixture.flac")
+    y, fs = sf.read(f"tests/audio/{file_idx:05d}_foreground.flac")
     cgp_python = cgp(x, y, fs, _discard_last_frame=True)
     cgp_matlab = eng.cgp(
-        matlab.double(x.tolist()),
-        matlab.double(y.tolist()),
-        float(fs)
+        matlab.double(x.tolist()), matlab.double(y.tolist()), float(fs)
     )
     assert np.allclose(cgp_python, cgp_matlab)
