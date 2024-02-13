@@ -8,7 +8,7 @@ import cgp.utils
 
 @pytest.mark.parametrize("n", [1023, 1024])
 def test_hanning(eng, n):
-    hanning_python = cgp.utils.hanning(n)
+    hanning_python = cgp.utils.hanning(n)[:, None]
     hanning_matlab = eng.hanning(float(n))
     assert hanning_python.shape == hanning_matlab.size
     assert np.allclose(hanning_python, hanning_matlab)
@@ -32,11 +32,12 @@ def test_stft(eng, rng, n, n_fft, hop_len, win_len):
 @pytest.mark.parametrize("fs_in", [10000])
 @pytest.mark.parametrize("fs_out", [16000])
 def test_resample(eng, rng, n, fs_in, fs_out):
-    x = rng.standard_normal((n, 1))
+    x = rng.standard_normal(n)
     resampled_python = cgp.utils.resample(x, fs_in, fs_out)
     resampled_matlab = eng.resample(
         matlab.double(x.tolist()), float(fs_out), float(fs_in)
     )
+    resampled_python = resampled_python[None, :]
     assert resampled_python.shape == resampled_matlab.size
     assert np.allclose(resampled_python, resampled_matlab)
 
@@ -64,8 +65,8 @@ def test_remove_silent_frames(eng, rng, n, silence_idx):
     for start, end in silence_idx:
         x[start:end] = 0
     x_python, y_python = cgp.utils.remove_silent_frames(
-        x,
-        y,
+        x[None, :],
+        y[None, :],
         cfg.vad_win_len,
         cfg.vad_hop_len,
         cfg.vad_dyn_range,
@@ -79,11 +80,10 @@ def test_remove_silent_frames(eng, rng, n, silence_idx):
         float(cfg.vad_hop_len),
         nargout=2,
     )
-    x_python, y_python = x_python[:, None], y_python[:, None]
-    assert x_python.shape == x_matlab.size
-    assert y_python.shape == y_matlab.size
-    assert np.allclose(x_python, x_matlab)
-    assert np.allclose(y_python, y_matlab)
+    assert x_python.T.shape == x_matlab.size
+    assert y_python.T.shape == y_matlab.size
+    assert np.allclose(x_python.T, x_matlab)
+    assert np.allclose(y_python.T, y_matlab)
 
 
 def test_gen_cochlear_fb(eng):
@@ -109,18 +109,12 @@ def test_gen_tmp_mod_lpf(eng):
 def test_calc_tf_scores(eng, n):
     x = np.random.standard_normal((cfg.n_channels, n))
     y = np.random.standard_normal((cfg.n_channels, n))
-    n_spec_seg = cgp.utils.n_spec_seg(
-        cfg.n_channels, cfg.spec_seg_len, cfg.spec_seg_hop
+    gauss_kernel = cgp.utils.gauss_kernel(
+        cfg.n_channels, cfg.spec_seg_len, cfg.spec_seg_hop, cfg.gauss_kernel_width
     )
-    spec_seg_idx = np.arange(n_spec_seg) * cfg.spec_seg_hop
-    jj = np.arange(x.shape[0])
-    gauss_kernel = np.exp(
-        -0.5 * (np.subtract.outer(jj, spec_seg_idx) / cfg.gauss_kernel_width) ** 2
-    )
-    gauss_kernel /= gauss_kernel.sum(axis=1, keepdims=True)
     scores_python = cgp.utils.calc_tf_scores(
-        x, y, cfg.spec_seg_len, cfg.spec_seg_hop, gauss_kernel
-    )
+        x[None, :], y[None, :], cfg.spec_seg_len, cfg.spec_seg_hop, gauss_kernel
+    ).squeeze(0)
     scores_matlab = eng.calc_TF_scores(
         matlab.double(x.tolist()),
         matlab.double(y.tolist()),

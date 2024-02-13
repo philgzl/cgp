@@ -2,32 +2,32 @@ import numpy as np
 import scipy.signal
 
 
-def unfold(x, win_len, hop_len):
-    n_frames = (len(x) - win_len) // hop_len + 1
+def unfold(x, win_len, hop_len, axis=-1):
+    n_frames = (x.shape[axis] - win_len) // hop_len + 1
     idx = np.add.outer(np.arange(win_len), np.arange(n_frames) * hop_len)
-    return x[idx]
+    return np.take(x, idx, axis=axis)
 
 
 def hanning(n):
     win = 0.5 * (1 - np.cos(2 * np.pi * np.arange(1, n + 1) / (n + 1)))
-    return win[:, None]
+    return win
 
 
 def stft(x, win_len, hop_len, n_fft):
-    x = unfold(x, win_len, hop_len) * hanning(win_len)
-    return np.fft.rfft(x, n=n_fft, axis=0)
+    x = unfold(x, win_len, hop_len, axis=-1) * hanning(win_len)[:, None]
+    return np.fft.rfft(x, n=n_fft, axis=-2)
 
 
 def resample(x, fs_in, fs_out):
-    return scipy.signal.resample_poly(x, fs_out, fs_in)
+    return scipy.signal.resample_poly(x, fs_out, fs_in, axis=-1)
 
 
 def remove_silent_frames(x, y, win_len, hop_len, dyn_range, _discard_last_frame=False):
     # Inspired from https://github.com/mpariente/pystoi
     # Copyright (c) 2018 Pariente Manuel
     # MIT License
-    x_frames = unfold(x, win_len, hop_len) * hanning(win_len)
-    y_frames = unfold(y, win_len, hop_len) * hanning(win_len)
+    x_frames = unfold(x, win_len, hop_len) * hanning(win_len)[:, None]
+    y_frames = unfold(y, win_len, hop_len) * hanning(win_len)[:, None]
 
     # The original MATLAB implementation discards the last frame if the signal
     # fits an integer number of frames
@@ -36,15 +36,33 @@ def remove_silent_frames(x, y, win_len, hop_len, dyn_range, _discard_last_frame=
         y_frames = y_frames[..., :-1]
 
     with np.errstate(divide="ignore", invalid="ignore"):
-        x_dB = 20 * np.log10(np.linalg.norm(x_frames, axis=0))
-        mask = (np.max(x_dB) - dyn_range - x_dB) < 0
+        x_dB = 20 * np.log10(np.linalg.norm(x_frames, axis=-2))
+        mask = (np.max(x_dB, axis=1, keepdims=True) - dyn_range - x_dB) < 0
 
-    if not any(mask):
+    # TODO: what if no speech frames in a single batch item?
+    if not mask.any():
         raise RuntimeError("No speech frames detected")
 
-    x = overlap_and_add(x_frames[:, mask], hop_len)
-    y = overlap_and_add(y_frames[:, mask], hop_len)
+    x_frames = apply_mask(x_frames, mask)
+    y_frames = apply_mask(y_frames, mask)
+
+    x = overlap_and_add(x_frames, hop_len)
+    y = overlap_and_add(y_frames, hop_len)
+
     return x, y
+
+
+def apply_mask(x, mask):
+    ns = mask.sum(axis=-1)
+    n_max = ns.max()
+    return np.stack(
+        [
+            np.pad(
+                x[i, :, mask[i]], ((0, n_max - ns[i]), (0, 0)), constant_values=np.nan
+            )
+            for i in range(x.shape[0])
+        ]
+    )
 
 
 def overlap_and_add(x, hop_len):
@@ -53,34 +71,48 @@ def overlap_and_add(x, hop_len):
     # MIT License
     # Original PR by Gianluca Micchi
     # https://github.com/mpariente/pystoi/pull/26
-    win_len, n_frames = x.shape
+    batch_size, n_frames, win_len = x.shape
 
     # Compute the number of segments per frame
     n_seg = -(-win_len // hop_len)  # Divide and round up
 
+    # Get non-nan frames
+    x = [x_i[~np.isnan(x_i).any(axis=1), :] for x_i in x]
+    n_valid_frames = [x_i.shape[0] for x_i in x]
+
     # Pad the win_len dimension to n_seg * hop_len and add n_seg frames
-    x = np.pad(x, ((0, n_seg * hop_len - win_len), (0, n_seg)))
+    x = [np.pad(x_i, ((0, n_seg), (0, n_seg * hop_len - win_len))) for x_i in x]
 
-    # Reshape to a 3D tensor, splitting the win_len dimension in two
-    x = x.reshape(n_seg, hop_len, n_frames + n_seg)
+    # Restore nans
+    x = np.stack(
+        [
+            np.pad(x_i, ((0, n_frames - n_i), (0, 0)), constant_values=np.nan)
+            for x_i, n_i in zip(x, n_valid_frames)
+        ]
+    )
 
-    # Transpose so that x.shape = (n_seg, n_frames + n_seg, hop_len)
-    x = np.transpose(x, [0, 2, 1])
+    # Reshape to a 4D tensor, splitting the win_len dimension in two
+    x = x.reshape(batch_size, n_frames + n_seg, n_seg, hop_len)
 
-    # Reshape so that x.shape = (n_seg * (n_frames + n_seg), hop_len)
-    x = x.reshape(-1, hop_len)
+    # Swap axes so that x.shape = (batch_size, n_seg, n_frames + n_seg, hop_len)
+    x = x.swapaxes(1, 2)
 
-    # Now behold the magic! Remove the last n_seg elements from the first axis
-    x = x[:-n_seg]
+    # Reshape so that x.shape = (batch_size, n_seg * (n_frames + n_seg), hop_len)
+    x = x.reshape(batch_size, -1, hop_len)
 
-    # Reshape to (n_seg, n_frames + n_seg - 1, hop_len)
-    x = x.reshape((n_seg, n_frames + n_seg - 1, hop_len))
+    # Now behold the magic! Remove the last n_seg elements from the second axis
+    x = x[:, :-n_seg]
+
+    # Reshape to (batch_size, n_seg, n_frames + n_seg - 1, hop_len)
+    x = x.reshape((batch_size, n_seg, n_frames + n_seg - 1, hop_len))
     # This has introduced a shift by one in all rows
 
     # Now reduce over the columns and flatten the array to achieve the result
-    x = np.sum(x, axis=0)
-    end = (n_frames - 1) * hop_len + win_len
-    return x.reshape(-1)[:end]
+    x = np.nansum(x, axis=1).reshape(batch_size, -1)
+    for i in range(batch_size):
+        end = (n_valid_frames[i] - 1) * hop_len + win_len
+        x[i, end:] = np.nan
+    return x
 
 
 def gen_cochlear_fb(fs, n_fft, fcs):
@@ -103,57 +135,53 @@ def gen_tmp_mod_lpf(fc, fs, n_fft):
     return H / np.max(H)
 
 
-def apply_lpf(x, lpf):
-    x_fft = np.fft.fft(x, len(lpf), axis=-1)
-    return np.fft.ifft(lpf * x_fft, axis=-1).real[:, : x.shape[-1]]
-
-
-def n_spec_seg(n_channels, spec_seg_len, spec_seg_hop):
-    # The paper states "All segments have a length of full octave band or 12
-    # channels except the last segment which has 8 channels". This means an
-    # additional segment consisting of the last 8 channels is added even though
-    # the last 8 channels fit in the last 12-channel segment. The start index
-    # of each segment is calculated as follows in the MATLAB implementation:
-    #
-    #    spc_idx = 1:spc_inc:(J-(spc_seg-spc_inc)+1);
-    #
-    # which results in the following number of segments.
-    return np.ceil(
-        (n_channels - spec_seg_len + spec_seg_hop + 1) / spec_seg_hop
-    ).astype(int)
+def apply_lpf(x, fc, fs):
+    # TODO: find a more efficient method for batched inputs
+    if x.ndim == 2:
+        n_orig = x.shape[-1]
+        x = x[:, ~np.isnan(x).any(axis=0)]
+        n_fft = 2 ** np.ceil(np.log2(x.shape[-1])).astype(int)
+        lpf = gen_tmp_mod_lpf(fc, fs, n_fft)
+        x_fft = np.fft.fft(x, len(lpf), axis=-1)
+        x = np.fft.ifft(lpf * x_fft, axis=-1).real[..., : x.shape[-1]]
+        x = np.pad(x, ((0, 0), (0, n_orig - x.shape[-1])), constant_values=np.nan)
+    else:
+        x = np.stack([apply_lpf(x[i], fc, fs) for i in range(x.shape[0])])
+    return x
 
 
 def gauss_kernel(n_channels, spec_seg_len, spec_seg_hop, width):
-    n_seg = n_spec_seg(n_channels, spec_seg_len, spec_seg_hop)
-    seg_idx = np.arange(n_seg) * spec_seg_hop
+    seg_idx = np.arange(0, n_channels - spec_seg_len + spec_seg_hop + 1, spec_seg_hop)
     j = np.arange(n_channels)
     gauss_kernel = np.exp(-0.5 * (np.subtract.outer(j, seg_idx) / width) ** 2)
     return gauss_kernel / gauss_kernel.sum(axis=1, keepdims=True)
 
 
-def normalize(x, axis):
-    x = x - np.mean(x, axis=axis, keepdims=True)
-    x = x / np.mean(x**2, axis=axis, keepdims=True) ** 0.5
+def normalize(x, axis, mean_func=np.mean):
+    x = x - mean_func(x, axis=axis, keepdims=True)
+    x = x / mean_func(x**2, axis=axis, keepdims=True) ** 0.5
     return x
 
 
 def calc_tf_scores(x, y, spec_seg, spec_inc, gauss_kernel):
-    x = normalize(x, axis=1)
-    y = normalize(y, axis=1)
+    x = normalize(x, axis=-1, mean_func=np.nanmean)
+    y = normalize(y, axis=-1, mean_func=np.nanmean)
 
-    n_seg = n_spec_seg(x.shape[0], spec_seg, spec_inc)
-    idx = np.add.outer(np.arange(spec_seg), np.arange(n_seg - 1) * spec_inc)
+    x_seg = unfold(x, spec_seg, spec_inc, axis=1)
+    y_seg = unfold(y, spec_seg, spec_inc, axis=1)
 
-    x_seg = normalize(x[idx, :], axis=0)
-    y_seg = normalize(y[idx, :], axis=0)
-    U = np.mean(x_seg * y_seg, axis=0)
+    with np.errstate(invalid="ignore"):
+        x_seg = normalize(x_seg, axis=1)
+        y_seg = normalize(y_seg, axis=1)
+    U = np.mean(x_seg * y_seg, axis=1)
 
     # handle last segment
     n_last = spec_seg - spec_inc
     if n_last:
-        x_seg = normalize(x[x.shape[0] - n_last :, None, :], axis=0)
-        y_seg = normalize(y[y.shape[0] - n_last :, None, :], axis=0)
-        U = np.concatenate([U, np.mean(x_seg * y_seg, axis=0)], axis=0)
+        with np.errstate(invalid="ignore"):
+            x_seg = normalize(x[:, x.shape[1] - n_last :, None, :], axis=1)
+            y_seg = normalize(y[:, y.shape[1] - n_last :, None, :], axis=1)
+        U = np.concatenate([U, np.mean(x_seg * y_seg, axis=1)], axis=1)
 
     U = np.maximum(U, 0)
-    return np.dot(gauss_kernel, U)
+    return np.einsum("nij,ki->nkj", U, gauss_kernel)

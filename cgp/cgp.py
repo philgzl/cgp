@@ -4,11 +4,26 @@ from . import config as cfg
 from . import utils
 
 
-def cgp(x, y, fs, _discard_last_frame=False):
-    if x.ndim != 1 or y.ndim != 1:
-        raise ValueError("x and y must be one-dimensional")
+def cgp(x, y, fs, axis=-1, _discard_last_frame=False):
     if x.shape != y.shape:
         raise ValueError("x and y must have the same shape")
+
+    if axis < 0:
+        axis = x.ndim + axis
+
+    input_shape = x.shape
+    if x.ndim == 1:
+        x = x.reshape(1, -1)
+        y = y.reshape(1, -1)
+        axis += 1
+
+    if axis != x.ndim - 1:
+        x = x.swapaxes(axis, -1)
+        y = y.swapaxes(axis, -1)
+
+    if x.ndim > 2:
+        x = x.reshape(-1, x.shape[-1])
+        y = y.reshape(-1, y.shape[-1])
 
     if fs != cfg.fs:
         x = utils.resample(x, fs, cfg.fs)
@@ -27,17 +42,15 @@ def cgp(x, y, fs, _discard_last_frame=False):
     y_stft = utils.stft(y, cfg.stft_win_len, cfg.stft_hop_len, cfg.stft_n_fft)
 
     fb = utils.gen_cochlear_fb(cfg.fs, cfg.stft_n_fft, cfg.fcs)
-    x = np.dot(fb**2, np.abs(x_stft) ** 2) ** 0.5
-    y = np.dot(fb**2, np.abs(y_stft) ** 2) ** 0.5
+    x = np.einsum("nij,ki->nkj", np.abs(x_stft) ** 2, fb**2) ** 0.5
+    y = np.einsum("nij,ki->nkj", np.abs(y_stft) ** 2, fb**2) ** 0.5
 
     x **= cfg.compression_factor
     y **= cfg.compression_factor
 
-    lpf_n_fft = 2 ** np.ceil(np.log2(x.shape[-1])).astype(int)
     lpf_fs = cfg.fs / cfg.stft_hop_len
-    lpf = utils.gen_tmp_mod_lpf(cfg.lpf_fc, lpf_fs, lpf_n_fft)
-    x = utils.apply_lpf(x, lpf)
-    y = utils.apply_lpf(y, lpf)
+    x = utils.apply_lpf(x, cfg.lpf_fc, lpf_fs)
+    y = utils.apply_lpf(y, cfg.lpf_fc, lpf_fs)
 
     gauss_kernel = utils.gauss_kernel(
         cfg.n_channels, cfg.spec_seg_len, cfg.spec_seg_hop, cfg.gauss_kernel_width
@@ -46,10 +59,15 @@ def cgp(x, y, fs, _discard_last_frame=False):
         x, y, cfg.spec_seg_len, cfg.spec_seg_hop, gauss_kernel
     )
 
-    env_rms = (x**2).mean(axis=1, keepdims=True) ** 0.5
+    env_rms = np.nanmean(x**2, axis=-1, keepdims=True) ** 0.5
     env_ratio_dB = 20 * np.log10(x / env_rms)
+    mask = env_ratio_dB >= cfg.env_ratio_thr
     glimpse_thrs = np.interp(
         np.arange(cfg.n_channels), cfg.thr_channels, cfg.glimpse_thrs
     )
     glimpses = scores > glimpse_thrs[:, None]
-    return glimpses[env_ratio_dB >= cfg.env_ratio_thr].mean()
+    output = np.sum(glimpses * mask, axis=(1, 2)) / mask.sum(axis=(1, 2))
+
+    if len(input_shape) == 1:
+        axis -= 1
+    return output.reshape([n for i, n in enumerate(input_shape) if i != axis])
