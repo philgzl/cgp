@@ -29,19 +29,22 @@ def remove_silent_frames(x, y, win_len, hop_len, dyn_range, _discard_last_frame=
     x_frames = unfold(x, win_len, hop_len) * hanning(win_len)[:, None]
     y_frames = unfold(y, win_len, hop_len) * hanning(win_len)[:, None]
 
-    # The original MATLAB implementation discards the last frame if the signal
-    # fits an integer number of frames
+    # The original MATLAB implementation discards the last frame if the signal fits an
+    # integer number of frames
     if _discard_last_frame and (x.shape[-1] - win_len) % hop_len == 0:
         x_frames = x_frames[..., :-1]
         y_frames = y_frames[..., :-1]
 
     with np.errstate(divide="ignore", invalid="ignore"):
         x_dB = 20 * np.log10(np.linalg.norm(x_frames, axis=-2))
-        mask = (np.max(x_dB, axis=1, keepdims=True) - dyn_range - x_dB) < 0
+        mask = (np.nanmax(x_dB, axis=-1, keepdims=True) - dyn_range - x_dB) < 0
 
-    # TODO: what if no speech frames in a single batch item?
-    if not mask.any():
-        raise RuntimeError("No speech frames detected")
+    if not all(mask.sum(axis=-1) > 2):
+        (idx,) = np.where(mask.sum(axis=-1) <= 2)
+        raise RuntimeError(
+            "Less than 3 speech frames were detected in batch items with index "
+            f"{idx.tolist()}"
+        )
 
     x_frames = apply_mask(x_frames, mask)
     y_frames = apply_mask(y_frames, mask)

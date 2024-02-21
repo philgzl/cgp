@@ -6,11 +6,61 @@ import soundfile as sf
 from cgp import cgp
 
 
+@pytest.mark.parametrize("fs", [10000])
+def test_errors(rng, fs):
+    with pytest.raises(ValueError):
+        cgp(rng.standard_normal(10000), rng.standard_normal(16000), fs)
+    with pytest.raises(TypeError):
+        cgp(rng.standard_normal(10000), rng.standard_normal(10000), "foo")
+    with pytest.raises(TypeError):
+        cgp(rng.standard_normal(10000), rng.standard_normal(10000), fs, axis="foo")
+    with pytest.raises(TypeError):
+        cgp(
+            rng.standard_normal(10000),
+            rng.standard_normal(10000),
+            fs,
+            lengths="foo",
+        )
+    with pytest.raises(TypeError):
+        cgp(
+            rng.standard_normal((1, 10000)),
+            rng.standard_normal((1, 10000)),
+            fs,
+            lengths="foo",
+        )
+    with pytest.raises(TypeError):
+        cgp(
+            rng.standard_normal(10000),
+            rng.standard_normal(10000),
+            fs,
+            lengths=[1000],
+        )
+    with pytest.raises(TypeError):
+        cgp(
+            rng.standard_normal((1, 10000)),
+            rng.standard_normal((1, 10000)),
+            fs,
+            lengths=1000,
+        )
+    with pytest.raises(ValueError):
+        cgp(
+            rng.standard_normal((1, 10000)),
+            rng.standard_normal((1, 10000)),
+            fs,
+            lengths=[1000, 1000],
+        )
+    with pytest.raises(TypeError):
+        cgp(
+            rng.standard_normal((1, 10000)),
+            rng.standard_normal((1, 10000)),
+            fs,
+            _discard_last_frame="foo",
+        )
+
+
 @pytest.mark.parametrize("n", [10000])
 @pytest.mark.parametrize("fs", [10000])
 def test_silence(n, fs):
-    # The MATLAB implementation raises an error for all-zero inputs.
-    # Maybe this behavior should be changed in the future.
     x = np.zeros(n)
     y = np.zeros(n)
     with pytest.raises(RuntimeError):
@@ -18,7 +68,7 @@ def test_silence(n, fs):
 
 
 @pytest.mark.parametrize("n", [10000, 16384])
-@pytest.mark.parametrize("fs", [10000, 16000])
+@pytest.mark.parametrize("fs", [10000, 16000, 8000])
 @pytest.mark.parametrize(
     "silence_idx",
     [
@@ -56,3 +106,21 @@ def test_real_signal(eng, file_idx):
         matlab.double(x.tolist()), matlab.double(y.tolist()), float(fs)
     )
     assert np.allclose(cgp_python, cgp_matlab)
+
+
+@pytest.mark.parametrize("n", [10000, 16384])
+@pytest.mark.parametrize("fs", [10000, 16000])
+@pytest.mark.parametrize(
+    "length", [8190, 8191, 8192, 8193, 8194, 8318, 8319, 8320, 8321, 8322]
+)
+@pytest.mark.parametrize("_discard_last_frame", [True, False])
+def test_length_arg(rng, n, fs, length, _discard_last_frame):
+    x = rng.standard_normal(n)
+    y = rng.standard_normal(n)
+    cgp_python_1 = cgp(
+        x, y, fs, lengths=length, _discard_last_frame=_discard_last_frame
+    )
+    cgp_python_2 = cgp(
+        x[:length], y[:length], fs, _discard_last_frame=_discard_last_frame
+    )
+    assert np.allclose(cgp_python_1, cgp_python_2)
