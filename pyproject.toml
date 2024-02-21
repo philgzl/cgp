@@ -1,2 +1,25 @@
+[project]
+name = "python-cgp"
+version = "0.0.1"
+authors = [
+  { name="Philippe Gonzalez", email="hello@philgzl.com" },
+]
+description = "A Python implementation of the correlation based glimpse proportion (CGP) index"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+  "numpy",
+  "scipy",
+]
+
+[project.urls]
+Homepage = "https://github.com/philgzl/cgp"
+Issues = "https://github.com/philgzl/cgp/issues"
+
 [tool.ruff]
 lint.extend-select = ["F", "E", "W", "I"]
