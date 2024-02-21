@@ -5,7 +5,7 @@ from . import utils
 
 
 def cgp(x, y, fs, axis=-1, lengths=None, _discard_last_frame=False):
-    """Correlation Based Glimpse Proportion Index (CGP).
+    """Correlation based glimpse proportion (CGP) index.
 
     Proposed in [1]_.
 
@@ -33,9 +33,8 @@ def cgp(x, y, fs, axis=-1, lengths=None, _discard_last_frame=False):
 
     References
     ----------
-    .. [1] A. Alghamdi, L. Moen, W.-Y. Chan, D. Fogerty and J. Jensen, "A Correlation-
-           Based Glimpse Proportion Index for Objective Intelligibility Assessment of
-           Cochlear Implants", in Proc. WASPAA, 2023.
+    .. [1] A. Alghamdi, L. Moen, W.-Y. Chan, D. Fogerty and J. Jensen, "Correlation
+           Based Glimpse Proportion Index", in Proc. WASPAA, 2023.
     """
     if not isinstance(x, np.ndarray) or not isinstance(y, np.ndarray):
         raise TypeError(
