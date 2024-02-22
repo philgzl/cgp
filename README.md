@@ -1,7 +1,7 @@
-# cgp
+# python-cgp
 
 A Python implementation of the correlation based glimpse proportion (CGP) index proposed in [1] for speech intelligibility prediction.
-
+Tested against original MATLAB implementation.
 Supports batched inputs.
 
 # Installation
@@ -16,6 +16,7 @@ pip install python-cgp
 import cgp
 import soundfile as sf
 
+# assuming single-channel files
 x, fs = sf.read("path/to/input/signal")
 y, fs = sf.read("path/to/reference/signal")
 
@@ -28,9 +29,9 @@ import cgp
 import numpy as np
 import soundfile as sf
 
+# assuming single-channel files
 x_1, fs = sf.read("path/to/input/signal/1")
 y_1, fs = sf.read("path/to/reference/signal/1")
-
 x_2, fs = sf.read("path/to/input/signal/2")
 y_2, fs = sf.read("path/to/reference/signal/2")
 
